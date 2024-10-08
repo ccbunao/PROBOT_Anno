@@ -1,21 +1,6 @@
-/***********************************************************************
-Copyright 2019 Wuhan PS-Micro Technology Co., Itd.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-***********************************************************************/
-
 #include "probot_grasping/grasping_demo.h"
 
+// 构造函数，初始化节点句柄、机械臂和夹爪组，以及视觉管理器
 GraspingDemo::GraspingDemo(ros::NodeHandle n_, float pregrasp_x, float pregrasp_y, float pregrasp_z, float length, float breadth) :
     it_(n_), 
     armgroup("manipulator"), 
@@ -26,7 +11,7 @@ GraspingDemo::GraspingDemo(ros::NodeHandle n_, float pregrasp_x, float pregrasp_
 
   try
   {
-    this->tf_camera_to_robot.waitForTransform("/base_link", "/camera_link", ros::Time(0), ros::Duration(50.0));
+    this->tf_camera_to_robot.waitForTransform("/base_link", "/camera_link", ros::Time(0), ros::Duration(50.0)); // camera的标定是在urdf中写定的，所以通过查询tf树中是不是存在base_link到camera_link的变换关系
   }
   catch (tf::TransformException &ex)
   {
@@ -36,14 +21,14 @@ GraspingDemo::GraspingDemo(ros::NodeHandle n_, float pregrasp_x, float pregrasp_
 
   try
   {
-    this->tf_camera_to_robot.lookupTransform("/base_link", "/camera_link", ros::Time(0), (this->camera_to_robot_));
+    this->tf_camera_to_robot.lookupTransform("/base_link", "/camera_link", ros::Time(0), (this->camera_to_robot_)); // 查询到以后，将结果保存到camera->to_tobot_中， 会保存x,y,z,roll,pitch,yaw,oritation
   }
 
   catch (tf::TransformException &ex)
   {
     ROS_ERROR("[adventure_tf]: (lookup) %s", ex.what());
   }
-
+  // 先让机械臂恢复到初始的位置
   grasp_running = false;
   
   this->pregrasp_x = pregrasp_x;
@@ -57,10 +42,11 @@ GraspingDemo::GraspingDemo(ros::NodeHandle n_, float pregrasp_x, float pregrasp_
   attainPosition(pregrasp_x, pregrasp_y, pregrasp_z);
 
   // Subscribe to input video feed and publish object location
-  image_sub_ = it_.subscribe("/probot_anno/camera/image_raw", 1, &GraspingDemo::imageCb, this);
+  image_sub_ = it_.subscribe("/probot_anno/camera/image_raw", 1, &GraspingDemo::imageCb, this); // 订阅图像
   image_pub_ = it_.advertise("/probot_anno/camera/image_detect", 1);
 }
 
+// 处理图像回调函数，获取图像并发布对象位置
 void GraspingDemo::imageCb(const sensor_msgs::ImageConstPtr &msg)
 {
   if (!grasp_running)
@@ -68,7 +54,7 @@ void GraspingDemo::imageCb(const sensor_msgs::ImageConstPtr &msg)
     ROS_INFO_STREAM("Processing the Image to locate the Object...");
     try
     {
-      cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+      cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8); // 使用cv_bridge将ROS图像消息转换为OpenCV图像
     }
     catch (cv_bridge::Exception &e)
     {
@@ -78,17 +64,17 @@ void GraspingDemo::imageCb(const sensor_msgs::ImageConstPtr &msg)
 
     // ROS_INFO("Image Message Received");
     float obj_x, obj_y;
-    cv::Mat detectImage = vMng_.get2DLocation(cv_ptr->image, obj_x, obj_y);
+    cv::Mat detectImage = vMng_.get2DLocation(cv_ptr->image, obj_x, obj_y); // 使用get2DLocation函数获取对象在图像中的位置
 
     // Temporary Debugging
     std::cout<< " X-Co-ordinate in Camera Frame :" << obj_x << std::endl;
     std::cout<< " Y-Co-ordinate in Camera Frame :" << obj_y << std::endl;
 
-    obj_camera_frame.setZ(-obj_y);
+    obj_camera_frame.setZ(-obj_y); // 将图像坐标变换为相机坐标系下的三维坐标
     obj_camera_frame.setY(-obj_x);
     obj_camera_frame.setX(0.45);
 
-    obj_robot_frame = camera_to_robot_ * obj_camera_frame;
+    obj_robot_frame = camera_to_robot_ * obj_camera_frame; // 将相机坐标系下的三维坐标变换为机器人坐标系下的三维坐标：（camera_link 相对于 base_link的位置关系） * （对象在图像中的位置 相对于 camera_link的位置关系）
     grasp_running = true;
     
 
@@ -105,6 +91,7 @@ void GraspingDemo::imageCb(const sensor_msgs::ImageConstPtr &msg)
   }
 }
 
+// 获取机械臂位置
 void GraspingDemo::attainPosition(float x, float y, float z)
 {
   // ROS_INFO("The attain position function called");
@@ -149,13 +136,14 @@ void GraspingDemo::attainPosition(float x, float y, float z)
   armgroup.move();
 }
 
+// 获取对象位置
 void GraspingDemo::attainObject()
 {
   // ROS_INFO("The attain Object function called");
   attainPosition(obj_robot_frame.getX(), obj_robot_frame.getY(), obj_robot_frame.getZ() + 0.04);
 
   // Open Gripper
-  grippergroup.setNamedTarget("open");
+  grippergroup.setNamedTarget("open"); // 夹爪展开
   grippergroup.move();
 
   // Slide down the Object
@@ -165,11 +153,12 @@ void GraspingDemo::attainObject()
   target_pose1.orientation = currPose.pose.orientation;
   target_pose1.position = currPose.pose.position;
 
-  target_pose1.position.z = obj_robot_frame.getZ() - 0.03;
-  armgroup.setPoseTarget(target_pose1);
-  armgroup.move();
+  target_pose1.position.z = obj_robot_frame.getZ() - 0.03; // 设置偏移量
+  armgroup.setPoseTarget(target_pose1); // 设置目标位置
+  armgroup.move(); // 移动
 }
 
+// 夹取对象
 void GraspingDemo::grasp()
 {
   // ROS_INFO("The Grasping function called");
@@ -179,6 +168,7 @@ void GraspingDemo::grasp()
   ros::WallDuration(1.0).sleep();
 }
 
+// 升起对象
 void GraspingDemo::lift()
 {
   // ROS_INFO("The lift function called");
@@ -187,7 +177,7 @@ void GraspingDemo::lift()
   geometry_msgs::PoseStamped currPose = armgroup.getCurrentPose();
 
   geometry_msgs::Pose target_pose1;
-  target_pose1.orientation = currPose.pose.orientation;
+  target_pose1.orienta tion = currPose.pose.orientation;
   target_pose1.position = currPose.pose.position;
 
   // Starting Postion after picking
@@ -219,6 +209,7 @@ void GraspingDemo::lift()
   armgroup.move();
 }
 
+// 返回初始位置
 void GraspingDemo::goHome()
 {
   geometry_msgs::PoseStamped currPose = armgroup.getCurrentPose();
@@ -228,25 +219,26 @@ void GraspingDemo::goHome()
   attainPosition(homePose.pose.position.x, homePose.pose.position.y, homePose.pose.position.z);
 }
 
+// 开始夹取
 void GraspingDemo::initiateGrasping()
 {
-  ros::AsyncSpinner spinner(1);
+  ros::AsyncSpinner spinner(1); 
   spinner.start();
   ros::WallDuration(3.0).sleep();
 
   homePose = armgroup.getCurrentPose();
   
   ROS_INFO_STREAM("Approaching the Object....");
-  attainObject();
+  attainObject(); //靠近物体
 
   ROS_INFO_STREAM("Attempting to Grasp the Object now..");
-  grasp();
+  grasp(); // 抓取物体
 
   ROS_INFO_STREAM("Lifting the Object....");
-  lift();
+  lift(); //移动
 
   ROS_INFO_STREAM("Going back to home position....");
-  goHome();
+  goHome(); //回到初始位置
 
   grasp_running = false;
 }
@@ -257,6 +249,7 @@ int main(int argc, char **argv)
   float length, breadth, pregrasp_x, pregrasp_y, pregrasp_z;
   ros::NodeHandle n;
 
+  // 获取参数
   if (!n.getParam("probot_grasping/table_length", length))
     length = 0.3;
   if (!n.getParam("probot_grasping/table_breadth", breadth))
@@ -268,6 +261,7 @@ int main(int argc, char **argv)
   if (!n.getParam("probot_grasping/pregrasp_z", pregrasp_z))
     pregrasp_z = 0.28;
 
+  // 初始化夹取
   GraspingDemo simGrasp(n, pregrasp_x, pregrasp_y, pregrasp_z, length, breadth);
   ROS_INFO_STREAM("Waiting for five seconds..");
 

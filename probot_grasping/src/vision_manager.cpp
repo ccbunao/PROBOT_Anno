@@ -1,27 +1,13 @@
-/***********************************************************************
-Copyright 2019 Wuhan PS-Micro Technology Co., Itd.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-***********************************************************************/
-
 #include "probot_grasping/vision_manager.h"
 
+// 构造函数，初始化VisionManager对象
 VisionManager::VisionManager(float length, float breadth)
 {
 	this->table_length = length;
 	this->table_breadth = breadth;
 }
 
+// 获取2D位置
 cv::Mat VisionManager::get2DLocation(cv::Mat img, float &x, float &y)
 {
 	this->curr_img = img;
@@ -30,17 +16,21 @@ cv::Mat VisionManager::get2DLocation(cv::Mat img, float &x, float &y)
 
 	cv::Rect tablePos;
 
+	// 检测桌子
 	detectTable(tablePos);
 
+	// 检测2D对象
 	cv::Mat image = detect2DObject(x, y, tablePos);
+	// 转换为毫米
 	convertToMM(x, y);
 
 	return image;
 }
 
+// 检测桌子
 void VisionManager::detectTable(cv::Rect &tablePos)
 {
-	// Extract Table from the image and assign values to pixel_per_mm fields
+	// 从图像中提取桌子并赋值给像素/毫米字段
 	cv::Mat BGR[3];
 	cv::Mat image = curr_img.clone();
 	split(image, BGR);
@@ -49,7 +39,7 @@ void VisionManager::detectTable(cv::Rect &tablePos)
 	cv::Mat denoiseImage;
 	cv::medianBlur(gray_image_red, denoiseImage, 3);
 
-	// Threshold the Image
+	// 阈值化图像
 	cv::Mat binaryImage = denoiseImage;
 	for (int i = 0; i < binaryImage.rows; i++)
 	{
@@ -59,7 +49,7 @@ void VisionManager::detectTable(cv::Rect &tablePos)
 			int editValue2 = gray_image_green.at<uchar>(i, j);
 
 			if ((editValue >= 0) && (editValue < 20) && (editValue2 >= 0) && (editValue2 < 20))
-			{ // check whether value is within range.
+			{ // 检查值是否在范围内。
 				binaryImage.at<uchar>(i, j) = 255;
 			}
 			else
@@ -70,7 +60,7 @@ void VisionManager::detectTable(cv::Rect &tablePos)
 	}
 	dilate(binaryImage, binaryImage, cv::Mat());
 
-	// Get the centroid of the of the blob
+	// 获取blob的中心点
 	std::vector<cv::Point> nonZeroPoints;
 	cv::findNonZero(binaryImage, nonZeroPoints);
 	cv::Rect bbox = cv::boundingRect(nonZeroPoints);
@@ -79,17 +69,17 @@ void VisionManager::detectTable(cv::Rect &tablePos)
 	pt.y = bbox.y + bbox.height / 2;
 	cv::circle(image, pt, 2, cv::Scalar(0, 0, 255), -1, 8);
 
-	// Update pixels_per_mm fields
+	// 更新像素/毫米字段
 	pixels_permm_y = bbox.height / table_length;
 	pixels_permm_x = bbox.width  / table_breadth;
 
     tablePos = bbox;
 
-	// Test the conversion values
+	// 测试转换值
 	std::cout << "Pixels in y" << pixels_permm_y << std::endl;
 	std::cout << "Pixels in x" << pixels_permm_x << std::endl;
 
-	// Draw Contours - For Debugging
+	// 绘制轮廓 - 用于调试
 	std::vector<std::vector<cv::Point>> contours;
 	std::vector<cv::Vec4i> hierarchy;
 
@@ -105,21 +95,22 @@ void VisionManager::detectTable(cv::Rect &tablePos)
 	// cv::waitKey(100);
 }
 
+// 检测2D对象
 cv::Mat VisionManager::detect2DObject(float &pixel_x, float &pixel_y, cv::Rect &tablePos)
 {
-	// Implement Color Thresholding and contour findings to get the location of object to be grasped in 2D
+	// 实现颜色阈值化和轮廓查找，以获取要抓取的2D对象的位置
 	cv::Mat image, gray_image_green;
 	cv::Mat BGR[3];
 	image = curr_img.clone();
 	cv::split(image, BGR);
 
-	gray_image_green = BGR[1];
+	gray_image_green = BGR[1]; // 提取绿色通道，因为识别绿色物体
 
-	// Denoise the Image
+	// 去噪图像
 	cv::Mat denoiseImage;
 	cv::medianBlur(gray_image_green, denoiseImage, 3);
 
-	// Threshold the Image
+	// 阈值化图像
 	cv::Mat binaryImage = denoiseImage;
 	for (int i = 0; i < binaryImage.rows; i++)
 	{
@@ -134,7 +125,7 @@ cv::Mat VisionManager::detect2DObject(float &pixel_x, float &pixel_y, cv::Rect &
 				int editValue = binaryImage.at<uchar>(i, j);
 
 				if ((editValue > 100) && (editValue <= 255))
-				{ // check whether value is within range.
+				{ // 检查值是否在范围内。
 					binaryImage.at<uchar>(i, j) = 255;
 				}
 				else
@@ -146,7 +137,7 @@ cv::Mat VisionManager::detect2DObject(float &pixel_x, float &pixel_y, cv::Rect &
 	}
 	dilate(binaryImage, binaryImage, cv::Mat());
 
-	// Get the centroid of the of the blob
+	// 获取blob的中心点
 	std::vector<cv::Point> nonZeroPoints;
 	cv::findNonZero(binaryImage, nonZeroPoints);
 	cv::Rect bbox = cv::boundingRect(nonZeroPoints);
@@ -154,16 +145,16 @@ cv::Mat VisionManager::detect2DObject(float &pixel_x, float &pixel_y, cv::Rect &
 	pixel_x = bbox.x + bbox.width / 2;
 	pixel_y = bbox.y + bbox.height / 2;
 
-	// Test the conversion values
+	// 测试转换值
 	std::cout << "pixel_x" << pixel_x << std::endl;
 	std::cout << "pixel_y" << pixel_y << std::endl;
 
-	// For Drawing
+	// 用于绘制
 	pt.x = bbox.x + bbox.width / 2;
 	pt.y = bbox.y + bbox.height / 2;
 	cv::circle(image, pt, 2, cv::Scalar(0, 0, 255), -1, 8);
 
-	// Draw Contours
+	// 绘制轮廓
 	std::vector<std::vector<cv::Point>> contours;
 	std::vector<cv::Vec4i> hierarchy;
 
@@ -181,14 +172,15 @@ cv::Mat VisionManager::detect2DObject(float &pixel_x, float &pixel_y, cv::Rect &
 	return image;
 }
 
+// 转换为毫米
 void VisionManager::convertToMM(float &x, float &y)
 {
-	// Convert from pixel to world co-ordinates in the camera frame
+	// 从像素到相机帧中的世界坐标的转换
 	x = (x - img_centre_x_) / pixels_permm_x;
 	y = (y - img_centre_y_) / pixels_permm_y;
 }
 
-// Temporary Main Function for testing- This should go away later
+// 临时主函数用于测试-稍后应该移除
 // int main(int argc, char** argv ) {
 // 	if ( argc != 2 )
 //     {
